@@ -42,7 +42,7 @@ class HistoryCommand extends Command
                 new InputOption('available', 'a', InputOption::VALUE_NONE, 'List available packages only'),
             ))
             ->setHelp(<<<EOT
-The show command displays detailed information about a package, or
+The history command displays detailed information about a package, or
 lists all packages available.
 
 EOT
@@ -185,13 +185,31 @@ EOT
                 foreach ($packages[$type] as $package) {
                     if (is_object($package)) {
                         $output->write("Bundle: ".$package->getPrettyName()."\n");
-
+                        $releaseDate = !is_null($package->getReleaseDate())? $package->getReleaseDate()->format('d/m/y') : ' ';
                         $output->write(
                             "Installed version: " . $this->versionParser->formatVersion($package).
                             " - ".$this->getReleaseDescription($package).
-                            " (".$package->getReleaseDate()->format('d/m/y').")\n"
+                            " (".$releaseDate.")\n"
                         );
-                            //$output->write("source: " . $package->get. "\n");
+
+                        $latestRelease = $this->getLatestRelease($package);
+                        $releaseDate = new \DateTime($latestRelease['published_at']);
+                        $output->write("Latest version: " . $latestRelease['name'].
+                                        " - ".$latestRelease['body'].
+                                        " (".$releaseDate->format('d/m/y').")\n"
+                        );
+
+                        $included = $this->getIncluded($package,$this->versionParser->formatVersion($package),$latestRelease['name']);
+
+                        $output->write("Included:)\n");
+
+                        foreach($included as $release)
+                        {
+                            $output->write($release['name'].
+                                " - ".$release['body'].
+                                " (".$release['releaseDate'].")\n"
+                            );
+                        }
 
 
 //                        if ($writeDescription) {
@@ -394,11 +412,92 @@ EOT
     public function getReleaseDescription($package){
         $version = $this->versionParser->formatVersion($package);
 
+        list($author, $repo) = $this->getRepoMeta($package);
+
+        $release = $this->getCurrentRelease($author, $repo, $version);
+
+        $description = $release['body'];
+
+        return $description;
+    }
+
+    private function getRepoMeta($package)
+    {
         $sourceUrl = $package->getSourceUrl();
 
         $sourceUrl = str_replace('https://github.com/', '', $sourceUrl);
 
-        return $sourceUrl;
+        $repoMeta = explode('/', $sourceUrl);
+
+        $author = $repoMeta[0];
+        $repo = str_replace('.git', '', $repoMeta[1]);
+
+        return array($author, $repo);
+
+    }
+
+
+    public function getRelease($author, $repo, $version)
+    {
+        $client = new \Github\Client();
+        $release = $client->api('repo')->releases()->all($author, $repo, $version);
+
+    }
+
+
+    public function getCurrentRelease($author, $repo, $version)
+    {
+        $client = new \Github\Client();
+        $releases = $client->api('repo')->releases()->all($author, $repo);
+        $currentRelease = null;
+
+        foreach($releases as $release)
+        {
+            if($release['name'] == $version)
+            {
+                $currentRelease = $release;
+            }
+        }
+
+        return $currentRelease;
+    }
+
+
+    public function getLatestRelease($package)
+    {
+        list($author, $repo) = $this->getRepoMeta($package);
+        $client = new \Github\Client();
+        $release = $client->api('repo')->releases()->latest($author, $repo);
+
+        return $release;
+    }
+
+    public function getIncluded($package, $current, $latest)
+    {
+        list($author, $repo) = $this->getRepoMeta($package);
+        $client = new \Github\Client();
+        $releases = $client->api('repo')->releases()->all($author, $repo);
+        $included = array();
+        foreach($releases as $release)
+        {
+            if($release['name'] == $latest) {
+                continue;
+            }
+            if($release['name'] == $current)
+            {
+                break;
+            }
+            $formattedMeta = array();
+            $formattedMeta['name'] = $release['name'];
+            $releaseDate = new \DateTime($release['published_at']);
+            $formattedMeta['description'] = $release['body'];
+            $formattedMeta['releaseDate'] = $releaseDate->format('d/m/y');
+
+            array_push($included, $formattedMeta);
+
+        }
+
+        return $included;
     }
 
 
