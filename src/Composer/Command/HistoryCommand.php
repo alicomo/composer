@@ -414,9 +414,13 @@ EOT
 
         list($author, $repo) = $this->getRepoMeta($package);
 
-        $release = $this->getCurrentRelease($author, $repo, $version);
-
-        $description = $release['body'];
+        if(strpos($version,'dev-master') !== false){
+            $commitId = str_replace('dev-master ', '', $version);
+        }
+        else{
+            $release = $this->getCurrentRelease($author, $repo, $version);
+            $description = $release['body'];
+        }
 
         return $description;
     }
