@@ -16,6 +16,7 @@ use Composer\Package\CompletePackageInterface;
 use Composer\Package\Version\VersionParser;
 use Composer\Plugin\CommandEvent;
 use Composer\Plugin\PluginEvents;
+use Guzzle\Common\Exception\ExceptionCollection;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputOption;
@@ -193,11 +194,18 @@ EOT
                         );
 
                         $latestRelease = $this->getLatestRelease($package);
-                        $releaseDate = new \DateTime($latestRelease['published_at']);
-                        $output->write("Latest version: " . $latestRelease['name'].
-                                        " - ".$latestRelease['body'].
-                                        " (".$releaseDate->format('d/m/y').")\n"
-                        );
+                        if(!is_null($latestRelease)){
+                            $releaseDate = new \DateTime($latestRelease['published_at']);
+                            $output->write("Latest version: " . $latestRelease['name'].
+                                " - ".$latestRelease['body'].
+                                " (".$releaseDate->format('d/m/y').")\n"
+                            );
+                        }
+                        else {
+                            $output->write("Latest version: No releases available\n"
+                            );
+                        }
+
 
                         $included = $this->getIncluded($package,$this->versionParser->formatVersion($package),$latestRelease['name']);
 
@@ -416,8 +424,12 @@ EOT
 
         if(strpos($version,'dev-master') !== false){
             $commitId = str_replace('dev-master ', '', $version);
+            $commit = $this->getCommitInfo($author, $repo, $commitId);
+
+            $description = $commit['commit']['message'];
         }
         else{
+
             $release = $this->getCurrentRelease($author, $repo, $version);
             $description = $release['body'];
         }
@@ -453,6 +465,8 @@ EOT
     {
         $client = new \Github\Client();
         $releases = $client->api('repo')->releases()->all($author, $repo);
+
+        print_r($releases);
         $currentRelease = null;
 
         foreach($releases as $release)
@@ -466,22 +480,43 @@ EOT
         return $currentRelease;
     }
 
+    public function getCommitInfo($author, $repo, $commitId)
+    {
+        $client = new \Github\Client();
+        $commit = $client->api('repo')->commits()->show($author,  $repo, $commitId);
+
+        return $commit;
+
+    }
+
 
     public function getLatestRelease($package)
     {
         list($author, $repo) = $this->getRepoMeta($package);
         $client = new \Github\Client();
-        $release = $client->api('repo')->releases()->latest($author, $repo);
+        try{
+            $release = $client->api('repo')->releases()->latest($author, $repo);
+        }
+        catch(\Github\Exception\RuntimeException $e) {
+            return null;
+        }
 
         return $release;
     }
 
     public function getIncluded($package, $current, $latest)
     {
+        $included = array();
         list($author, $repo) = $this->getRepoMeta($package);
         $client = new \Github\Client();
-        $releases = $client->api('repo')->releases()->all($author, $repo);
-        $included = array();
+        try{
+            $releases = $client->api('repo')->releases()->all($author, $repo);
+        }
+        catch(\Github\Exception\RuntimeException $e) {
+            return $included;
+        }
+
+
         foreach($releases as $release)
         {
             if($release['name'] == $latest) {
