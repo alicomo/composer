@@ -196,7 +196,7 @@ EOT
                         $latestRelease = $this->getLatestRelease($package);
                         if(!is_null($latestRelease)){
                             $releaseDate = new \DateTime($latestRelease['published_at']);
-                            $output->write("Latest version: " . $latestRelease['name'].
+                            $output->write("Latest version: " . $latestRelease['tag_name'].
                                 " - ".$latestRelease['body'].
                                 " (".$releaseDate->format('d/m/y').")\n"
                             );
@@ -207,14 +207,14 @@ EOT
                         }
 
 
-                        $included = $this->getIncluded($package,$this->versionParser->formatVersion($package),$latestRelease['name']);
+                        $included = $this->getIncluded($package,$this->versionParser->formatVersion($package),$latestRelease['tag_name']);
 
                         $output->write("Included:)\n");
 
                         foreach($included as $release)
                         {
                             $output->write($release['name'].
-                                " - ".$release['body'].
+                                " - ".$release['description'].
                                 " (".$release['releaseDate'].")\n"
                             );
                         }
@@ -425,8 +425,13 @@ EOT
         if(strpos($version,'dev-master') !== false){
             $commitId = str_replace('dev-master ', '', $version);
             $commit = $this->getCommitInfo($author, $repo, $commitId);
+            if($commit != null){
+                $description = $commit['commit']['message'];
+            }
+            else {
+                $description = 'Description not accessible';
+            }
 
-            $description = $commit['commit']['message'];
         }
         else{
 
@@ -441,10 +446,13 @@ EOT
     {
         $sourceUrl = $package->getSourceUrl();
 
-        $sourceUrl = str_replace('https://github.com/', '', $sourceUrl);
-
+        if (strpos($sourceUrl,'https://github.com/') !== false){
+            $sourceUrl = str_replace('https://github.com/', '', $sourceUrl);
+        }
+        else {
+            $sourceUrl = str_replace('git@github.com:', '', $sourceUrl);
+        }
         $repoMeta = explode('/', $sourceUrl);
-
         $author = $repoMeta[0];
         $repo = str_replace('.git', '', $repoMeta[1]);
 
@@ -464,9 +472,8 @@ EOT
     public function getCurrentRelease($author, $repo, $version)
     {
         $client = new \Github\Client();
+        $auth = $client->authenticate('alicomo', 'illuali365', \Github\Client::AUTH_HTTP_PASSWORD);
         $releases = $client->api('repo')->releases()->all($author, $repo);
-
-        print_r($releases);
         $currentRelease = null;
 
         foreach($releases as $release)
@@ -483,7 +490,14 @@ EOT
     public function getCommitInfo($author, $repo, $commitId)
     {
         $client = new \Github\Client();
-        $commit = $client->api('repo')->commits()->show($author,  $repo, $commitId);
+        $auth = $client->authenticate('alicomo', 'illuali365', \Github\Client::AUTH_HTTP_PASSWORD);
+
+        try{
+            $commit = $client->api('repo')->commits()->show($author,  $repo, $commitId);
+        }
+        catch(\Github\Exception\RuntimeException $e) {
+            return null;
+        }
 
         return $commit;
 
@@ -494,6 +508,7 @@ EOT
     {
         list($author, $repo) = $this->getRepoMeta($package);
         $client = new \Github\Client();
+        $auth = $client->authenticate('alicomo', 'illuali365', \Github\Client::AUTH_HTTP_PASSWORD);
         try{
             $release = $client->api('repo')->releases()->latest($author, $repo);
         }
@@ -509,16 +524,16 @@ EOT
         $included = array();
         list($author, $repo) = $this->getRepoMeta($package);
         $client = new \Github\Client();
+        $auth = $client->authenticate('alicomo', 'illuali365', \Github\Client::AUTH_HTTP_PASSWORD);
         try{
             $releases = $client->api('repo')->releases()->all($author, $repo);
         }
         catch(\Github\Exception\RuntimeException $e) {
             return $included;
         }
-
-
         foreach($releases as $release)
         {
+
             if($release['name'] == $latest) {
                 continue;
             }
@@ -527,7 +542,7 @@ EOT
                 break;
             }
             $formattedMeta = array();
-            $formattedMeta['name'] = $release['name'];
+            $formattedMeta['name'] = $release['tag_name'];
             $releaseDate = new \DateTime($release['published_at']);
             $formattedMeta['description'] = $release['body'];
             $formattedMeta['releaseDate'] = $releaseDate->format('d/m/y');
