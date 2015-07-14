@@ -41,6 +41,7 @@ class HistoryCommand extends Command
                 new InputOption('installed', 'i', InputOption::VALUE_NONE, 'List installed packages only'),
                 new InputOption('platform', 'p', InputOption::VALUE_NONE, 'List platform packages only'),
                 new InputOption('available', 'a', InputOption::VALUE_NONE, 'List available packages only'),
+                new InputOption('json', 'j', InputOption::VALUE_NONE, 'Output as json'),
             ))
             ->setHelp(<<<EOT
 The history command displays detailed information about a package, or
@@ -183,59 +184,82 @@ EOT
 
                 $writeVersion = $showVersion && ($nameLength + $versionLength + 3 <= $width);
                 $writeDescription = ($nameLength + ($showVersion ? $versionLength : 0) + 24 <= $width);
-                foreach ($packages[$type] as $package) {
-                    if (is_object($package)) {
-                        $output->write("Bundle: ".$package->getPrettyName()."\n");
-                        $releaseDate = !is_null($package->getReleaseDate())? $package->getReleaseDate()->format('d/m/y') : ' ';
-                        $output->write(
-                            "Installed version: " . $this->versionParser->formatVersion($package).
-                            " - ".$this->getReleaseDescription($package).
-                            " (".$releaseDate.")\n"
-                        );
+                if($input->getOption('json')) {
+                    $packageVersions = array();
 
-                        $latestRelease = $this->getLatestRelease($package);
-                        if(!is_null($latestRelease)){
-                            $releaseDate = new \DateTime($latestRelease['published_at']);
-                            $output->write("Latest version: " . $latestRelease['tag_name'].
-                                " - ".$latestRelease['body'].
-                                " (".$releaseDate->format('d/m/y').")\n"
-                            );
+                    foreach ($packages[$type] as $package) {
+                        if (is_object($package)) {
+
+
+                            $packageVersion = array();
+                            $packageVersion['bundle'] = $package->getPrettyName();
+                            $releaseDate = !is_null($package->getReleaseDate()) ? $package->getReleaseDate()->format('d/m/y') : ' ';
+                            $packageVersion['installed']['name'] = $this->versionParser->formatVersion($package);
+                            $packageVersion['installed']['description'] = $this->getReleaseDescription($package);
+                            $packageVersion['installed']['releaseDate'] = $releaseDate;
+
+                            $latestRelease = $this->getLatestRelease($package);
+
+
+                            if (!is_null($latestRelease)) {
+                                $releaseDate = new \DateTime($latestRelease['published_at']);
+                                $packageVersion['latest']['name'] = $latestRelease['tag_name'];
+                                $packageVersion['latest']['description'] = $latestRelease['body'];
+                                $packageVersion['latest']['releaseDate'] = $releaseDate->format('d/m/y');
+                            } else {
+                                $packageVersion['latest'] = array();
+                            }
+
+                            $packageVersion['included'] = $this->getIncluded($package, $this->versionParser->formatVersion($package), $latestRelease['tag_name']);
+
+                            array_push($packageVersions, $packageVersion);
+
+
+
                         }
-                        else {
-                            $output->write("Latest version: No releases available\n"
-                            );
-                        }
-
-
-                        $included = $this->getIncluded($package,$this->versionParser->formatVersion($package),$latestRelease['tag_name']);
-
-                        $output->write("Included:)\n");
-
-                        foreach($included as $release)
-                        {
-                            $output->write($release['name'].
-                                " - ".$release['description'].
-                                " (".$release['releaseDate'].")\n"
-                            );
-                        }
-
-
-//                        if ($writeDescription) {
-//                            $description = strtok($package->getDescription(), "\r\n");
-//                            $remaining = $width - $nameLength - $versionLength - 4;
-//                            if (strlen($description) > $remaining) {
-//                                $description = substr($description, 0, $remaining - 3) . '...';
-//                            }
-//                            $output->write(' ' . $description);
-//                        }
-
-                    } else {
-                        $output->write($indent . $package);
                     }
-                    $this->getIO()->write('');
-                }
-                if ($tree) {
-                    $this->getIO()->write('');
+
+                    $packageVersions = json_encode($packageVersions);
+                    $output->write($packageVersions);
+                } else {
+
+                    foreach ($packages[$type] as $package) {
+                        if (is_object($package)) {
+                            $output->write("Bundle: " . $package->getPrettyName() . "\n");
+                            $releaseDate = !is_null($package->getReleaseDate()) ? $package->getReleaseDate()->format('d/m/y') : ' ';
+                            $output->write(
+                                "Installed version: " . $this->versionParser->formatVersion($package) .
+                                " - " . $this->getReleaseDescription($package) .
+                                " (" . $releaseDate . ")\n"
+                            );
+
+                            $latestRelease = $this->getLatestRelease($package);
+                            if (!is_null($latestRelease)) {
+                                $releaseDate = new \DateTime($latestRelease['published_at']);
+                                $output->write("Latest version: " . $latestRelease['tag_name'] .
+                                    " - " . $latestRelease['body'] .
+                                    " (" . $releaseDate->format('d/m/y') . ")\n"
+                                );
+                            } else {
+                                $output->write("Latest version: No releases available\n"
+                                );
+                            }
+
+
+                            $included = $this->getIncluded($package, $this->versionParser->formatVersion($package), $latestRelease['tag_name']);
+
+                            $output->write("Included:)\n");
+
+                            foreach ($included as $release) {
+                                $output->write($release['name'] .
+                                    " - " . $release['description'] .
+                                    " (" . $release['releaseDate'] . ")\n"
+                                );
+                            }
+
+                        }
+
+                    }
                 }
             }
         }
